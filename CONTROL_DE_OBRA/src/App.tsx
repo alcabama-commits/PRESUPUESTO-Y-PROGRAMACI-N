@@ -7,6 +7,314 @@ import { LayoutDashboard, Calendar, ListTodo, Menu, Settings, TrendingUp, Save }
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
+type ItemsObraSubItem = {
+  concepto: string;
+  unidad: string;
+  unit?: string;
+  detalle: string;
+  quantity?: number;
+  unitPrice?: number;
+  budgetedCost?: number;
+  actualCost?: number;
+  startDate?: string;
+  endDate?: string;
+  progress?: number;
+  dependencies?: string[];
+  isMilestone?: boolean;
+};
+
+type ItemsObraItem = {
+  id: string;
+  descripcion: string;
+  sub_items?: ItemsObraSubItem[];
+  unit?: string;
+  quantity?: number;
+  unitPrice?: number;
+  budgetedCost?: number;
+  actualCost?: number;
+  startDate?: string;
+  endDate?: string;
+  progress?: number;
+  dependencies?: string[];
+  isMilestone?: boolean;
+};
+
+type ItemsObraCapitulo = {
+  nombre: string;
+  items: ItemsObraItem[];
+  startDate?: string;
+  endDate?: string;
+  progress?: number;
+  dependencies?: string[];
+  isMilestone?: boolean;
+};
+
+type ItemsObraTaskMeta = {
+  startDate?: string;
+  endDate?: string;
+  unit?: string;
+  quantity?: number;
+  unitPrice?: number;
+  budgetedCost?: number;
+  actualCost?: number;
+  progress?: number;
+  dependencies?: string[];
+  isMilestone?: boolean;
+};
+
+type ItemsObraRootLocal = {
+  presupuesto_obra_bogota?: Record<string, ItemsObraCapitulo>;
+  meta?: Record<string, ItemsObraTaskMeta>;
+};
+
+const DEFAULT_START_TIME = '07:00';
+const DEFAULT_END_TIME = '17:00';
+
+const asISODate = (date: Date) => date.toISOString().slice(0, 10);
+
+const ensureTime = (iso: string | undefined, isEnd: boolean) => {
+  if (!iso) return undefined;
+  if (iso.includes('T')) return iso;
+  return `${iso}T${isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME}`;
+};
+
+const addDays = (base: Date, days: number) => new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+const normalizeText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const inferCategoryFromChapterName = (chapterName: string): Task['category'] => {
+  const n = normalizeText(chapterName);
+  if (n.includes('prelim')) return 'Preliminares';
+  if (n.includes('ciment') || n.includes('estruct') || n.includes('acero')) return 'Estructura';
+  if (n.includes('instal') || n.includes('electr') || n.includes('hidro') || n.includes('gas')) return 'Instalaciones';
+  if (n.includes('acab') || n.includes('mampost') || n.includes('panet') || n.includes('pintur')) return 'Acabados';
+  return 'Otros';
+};
+
+const parseChapterNumber = (chapterKey: string) => {
+  const match = chapterKey.match(/capitulo_(\d+)/i);
+  if (!match) return Number.NaN;
+  return Number.parseInt(match[1], 10);
+};
+
+const inferChapterCode = (chapterKey: string, chapter: ItemsObraCapitulo) => {
+  const fromKey = parseChapterNumber(chapterKey);
+
+  const counts: Record<string, number> = {};
+  for (const item of chapter.items ?? []) {
+    const prefix = item.id?.split('.')?.[0];
+    if (!prefix) continue;
+    if (!/^\d+$/.test(prefix)) continue;
+    counts[prefix] = (counts[prefix] ?? 0) + 1;
+  }
+
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (best && (!Number.isFinite(fromKey) || best !== String(fromKey))) return best;
+  if (Number.isFinite(fromKey)) return String(fromKey);
+  return chapterKey;
+};
+
+const minISO = (a: string | null, b: string) => {
+  if (!a) return b;
+  const da = new Date(a).getTime();
+  const db = new Date(b).getTime();
+  if (!Number.isFinite(da)) return b;
+  if (!Number.isFinite(db)) return a;
+  return da <= db ? a : b;
+};
+
+const maxISO = (a: string | null, b: string) => {
+  if (!a) return b;
+  const da = new Date(a).getTime();
+  const db = new Date(b).getTime();
+  if (!Number.isFinite(da)) return b;
+  if (!Number.isFinite(db)) return a;
+  return da >= db ? a : b;
+};
+
+const buildProjectFromItemsObraLocal = (itemsObra: ItemsObraRootLocal): ProjectData => {
+  const base = new Date();
+  const baseDate = asISODate(base);
+
+  const presupuesto = itemsObra.presupuesto_obra_bogota ?? {};
+  const meta = itemsObra.meta ?? {};
+  const chapterEntries = Object.entries(presupuesto).sort(([a], [b]) => {
+    const na = parseChapterNumber(a);
+    const nb = parseChapterNumber(b);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+
+  const tasks: Task[] = [];
+  let dayOffset = 0;
+  const usedChapterCodes = new Set<string>();
+
+  for (const [chapterKey, chapter] of chapterEntries) {
+    let chapterCode = inferChapterCode(chapterKey, chapter);
+    if (usedChapterCodes.has(chapterCode)) chapterCode = `${chapterCode}_${chapterKey}`;
+    usedChapterCodes.add(chapterCode);
+
+    const category = inferCategoryFromChapterName(chapter.nombre ?? chapterKey);
+    const chapterIndex = tasks.length;
+    const legacyChapterCode = Number.isFinite(parseChapterNumber(chapterKey)) ? String(parseChapterNumber(chapterKey)) : null;
+    const mChapter = meta[chapterCode] ?? (legacyChapterCode ? meta[legacyChapterCode] : undefined) ?? {};
+
+    tasks.push({
+      id: chapterCode,
+      code: chapterCode,
+      name: (chapter.nombre ?? chapterKey).toUpperCase(),
+      startDate: ensureTime(chapter.startDate ?? mChapter.startDate, false) ?? `${baseDate}T${DEFAULT_START_TIME}`,
+      endDate: ensureTime(chapter.endDate ?? mChapter.endDate, true) ?? `${baseDate}T${DEFAULT_END_TIME}`,
+      unit: 'GLB',
+      quantity: 1,
+      unitPrice: 0,
+      budgetedCost: 0,
+      actualCost: 0,
+      progress: mChapter.progress ?? 0,
+      category,
+      dependencies: chapter.dependencies ?? mChapter.dependencies,
+      isMilestone: chapter.isMilestone ?? mChapter.isMilestone ?? false,
+      isChapter: true,
+    });
+
+    const chapterStartOffset = dayOffset;
+    let chapterMinStart: string | null = null;
+    let chapterMaxEnd: string | null = null;
+    let chapterBudgetSum = 0;
+    let chapterActualSum = 0;
+
+    for (const item of chapter.items ?? []) {
+      const subItems = item.sub_items ?? [];
+
+      if (subItems.length === 0) {
+        const start = `${asISODate(addDays(base, dayOffset))}T${DEFAULT_START_TIME}`;
+        const end = `${asISODate(addDays(base, dayOffset))}T${DEFAULT_END_TIME}`;
+        const mItem = meta[item.id] ?? {};
+        const quantity = Number(item.quantity ?? mItem.quantity ?? 0) || 0;
+        const unitPrice = Number(item.unitPrice ?? mItem.unitPrice ?? 0) || 0;
+        const budgetedCost = Number(item.budgetedCost ?? mItem.budgetedCost ?? quantity * unitPrice) || 0;
+        const actualCost = Number(item.actualCost ?? mItem.actualCost ?? 0) || 0;
+        const startDate = ensureTime(item.startDate ?? mItem.startDate, false) ?? start;
+        const endDate = ensureTime(item.endDate ?? mItem.endDate, true) ?? end;
+        tasks.push({
+          id: item.id,
+          code: item.id,
+          name: item.descripcion ?? item.id,
+          startDate,
+          endDate,
+          unit: item.unit ?? 'GLB',
+          quantity,
+          unitPrice,
+          budgetedCost,
+          actualCost,
+          progress: mItem.progress ?? 0,
+          category,
+          dependencies: item.dependencies ?? mItem.dependencies,
+          isMilestone: item.isMilestone ?? mItem.isMilestone ?? false,
+        });
+        chapterMinStart = minISO(chapterMinStart, startDate);
+        chapterMaxEnd = maxISO(chapterMaxEnd, endDate);
+        chapterBudgetSum += budgetedCost;
+        chapterActualSum += actualCost;
+        dayOffset += 1;
+        continue;
+      }
+
+      const itemIndex = tasks.length;
+      const mItem = meta[item.id] ?? {};
+      tasks.push({
+        id: item.id,
+        code: item.id,
+        name: item.descripcion ?? item.id,
+        startDate: ensureTime(item.startDate ?? mItem.startDate, false) ?? `${baseDate}T${DEFAULT_START_TIME}`,
+        endDate: ensureTime(item.endDate ?? mItem.endDate, true) ?? `${baseDate}T${DEFAULT_END_TIME}`,
+        unit: 'GLB',
+        quantity: 1,
+        unitPrice: 0,
+        budgetedCost: 0,
+        actualCost: 0,
+        progress: mItem.progress ?? 0,
+        category,
+        dependencies: item.dependencies ?? mItem.dependencies,
+        isMilestone: item.isMilestone ?? mItem.isMilestone ?? false,
+        isChapter: true,
+      });
+
+      const itemStartOffset = dayOffset;
+      let itemMinStart: string | null = null;
+      let itemMaxEnd: string | null = null;
+      let itemBudgetSum = 0;
+      let itemActualSum = 0;
+
+      for (let i = 0; i < subItems.length; i += 1) {
+        const sub = subItems[i]!;
+        const start = `${asISODate(addDays(base, dayOffset))}T${DEFAULT_START_TIME}`;
+        const end = `${asISODate(addDays(base, dayOffset))}T${DEFAULT_END_TIME}`;
+        const code = `${item.id}.${i + 1}`;
+        const mSub = meta[code] ?? {};
+        const quantity = Number(sub.quantity ?? mSub.quantity ?? 0) || 0;
+        const unitPrice = Number(sub.unitPrice ?? mSub.unitPrice ?? 0) || 0;
+        const budgetedCost = Number(sub.budgetedCost ?? mSub.budgetedCost ?? quantity * unitPrice) || 0;
+        const actualCost = Number(sub.actualCost ?? mSub.actualCost ?? 0) || 0;
+        const startDate = ensureTime(sub.startDate ?? mSub.startDate, false) ?? start;
+        const endDate = ensureTime(sub.endDate ?? mSub.endDate, true) ?? end;
+        tasks.push({
+          id: code,
+          code,
+          name: sub.concepto ?? code,
+          startDate,
+          endDate,
+          unit: sub.unidad ?? sub.unit ?? '',
+          quantity,
+          unitPrice,
+          budgetedCost,
+          actualCost,
+          progress: mSub.progress ?? 0,
+          category,
+          dependencies: sub.dependencies ?? mSub.dependencies,
+          isMilestone: sub.isMilestone ?? mSub.isMilestone ?? false,
+        });
+        itemMinStart = minISO(itemMinStart, startDate);
+        itemMaxEnd = maxISO(itemMaxEnd, endDate);
+        itemBudgetSum += budgetedCost;
+        itemActualSum += actualCost;
+        dayOffset += 1;
+      }
+
+      const itemStart = asISODate(addDays(base, itemStartOffset));
+      const itemEnd = asISODate(addDays(base, Math.max(itemStartOffset, dayOffset - 1)));
+      tasks[itemIndex] = {
+        ...tasks[itemIndex]!,
+        startDate: itemMinStart ?? ensureTime(tasks[itemIndex]!.startDate, false) ?? `${itemStart}T${DEFAULT_START_TIME}`,
+        endDate: itemMaxEnd ?? ensureTime(tasks[itemIndex]!.endDate, true) ?? `${itemEnd}T${DEFAULT_END_TIME}`,
+        budgetedCost: itemBudgetSum,
+        actualCost: itemActualSum,
+      };
+
+      chapterMinStart = itemMinStart ? minISO(chapterMinStart, itemMinStart) : chapterMinStart;
+      chapterMaxEnd = itemMaxEnd ? maxISO(chapterMaxEnd, itemMaxEnd) : chapterMaxEnd;
+      chapterBudgetSum += itemBudgetSum;
+      chapterActualSum += itemActualSum;
+    }
+
+    const chapterStart = asISODate(addDays(base, chapterStartOffset));
+    const chapterEnd = asISODate(addDays(base, Math.max(chapterStartOffset, dayOffset - 1)));
+    tasks[chapterIndex] = {
+      ...tasks[chapterIndex]!,
+      startDate: chapterMinStart ?? ensureTime(tasks[chapterIndex]!.startDate, false) ?? `${chapterStart}T${DEFAULT_START_TIME}`,
+      endDate: chapterMaxEnd ?? ensureTime(tasks[chapterIndex]!.endDate, true) ?? `${chapterEnd}T${DEFAULT_END_TIME}`,
+      budgetedCost: chapterBudgetSum,
+      actualCost: chapterActualSum,
+    };
+  }
+
+  return { projectName: 'Kennedy Haus 08', tasks };
+};
+
 export default function App() {
   const [project, setProject] = useState<ProjectData>(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'gantt' | 'tasks'>('dashboard');
@@ -45,9 +353,21 @@ export default function App() {
     let cancelled = false;
     const run = async () => {
       try {
-        const res = await fetch('/api/project');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as ProjectData;
+        let data: ProjectData | null = null;
+        try {
+          const res = await fetch('/api/project');
+          if (res.ok) data = (await res.json()) as ProjectData;
+        } catch {
+        }
+
+        if (!data) {
+          const url = new URL('../ITEMS_OBRA.json', import.meta.url);
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`No se pudo cargar ITEMS_OBRA.json (HTTP ${res.status})`);
+          const items = (await res.json()) as ItemsObraRootLocal;
+          data = buildProjectFromItemsObraLocal(items);
+        }
+
         if (cancelled) return;
         setProject(data);
         setLoadError(null);
