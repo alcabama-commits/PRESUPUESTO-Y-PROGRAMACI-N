@@ -10,14 +10,16 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ tasks }) => {
-  const totalBudget = tasks.reduce((acc, t) => acc + t.budgetedCost, 0);
-  const totalActual = tasks.reduce((acc, t) => acc + t.actualCost, 0);
-  const averageProgress = tasks.length > 0 ? tasks.reduce((acc, t) => acc + t.progress, 0) / tasks.length : 0;
+  const costTasks = useMemo(() => tasks.filter((t) => !t.isChapter), [tasks]);
+
+  const totalBudget = costTasks.reduce((acc, t) => acc + t.budgetedCost, 0);
+  const totalActual = costTasks.reduce((acc, t) => acc + t.actualCost, 0);
+  const averageProgress = costTasks.length > 0 ? costTasks.reduce((acc, t) => acc + t.progress, 0) / costTasks.length : 0;
   const budgetRatio = totalBudget > 0 ? (totalActual / totalBudget) * 100 : 0;
 
   const sortedByStartDate = useMemo(() => {
-    return [...tasks].sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-  }, [tasks]);
+    return [...costTasks].sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+  }, [costTasks]);
 
   const timeSummary = useMemo(() => {
     if (tasks.length === 0) return null;
@@ -66,13 +68,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ tasks }) => {
 
   const categoryData = useMemo(() => {
     const cats: Record<string, { budgeted: number, actual: number }> = {};
-    tasks.forEach(t => {
+    costTasks.forEach(t => {
       if (!cats[t.category]) cats[t.category] = { budgeted: 0, actual: 0 };
       cats[t.category].budgeted += t.budgetedCost;
       cats[t.category].actual += t.actualCost;
     });
     return Object.entries(cats).map(([name, data]) => ({ name, ...data }));
-  }, [tasks]);
+  }, [costTasks]);
 
   return (
     <div className="space-y-6">
@@ -94,7 +96,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ tasks }) => {
           <div className="mt-4 h-1 w-full bg-zinc-100 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500" style={{ width: `${averageProgress}%` }} />
           </div>
-          <p className="text-[10px] text-zinc-400 mt-2">Basado en {tasks.length} actividades</p>
+          <p className="text-[10px] text-zinc-400 mt-2">Basado en {costTasks.length} actividades</p>
         </div>
 
         <div className="bg-white p-6 rounded-xl border border-zinc-200 shadow-sm">
