@@ -599,6 +599,16 @@ export default function App() {
     }
     return cur;
   };
+  const endDateForDuration = (startISO: string, durationDays: number) => {
+    let remaining = Math.max(1, durationDays);
+    let cur = datePart(startISO);
+    while (remaining > 0) {
+      remaining -= workingWeightForDay(cur);
+      if (remaining <= 0) break;
+      cur = addDaysISO(cur, 1);
+    }
+    return cur;
+  };
   const topoOrder = (tasksList: Task[]) => {
     const codes = tasksList.filter(t => !t.isChapter).map(t => t.code);
     const indeg = new Map<string, number>();
@@ -646,7 +656,7 @@ export default function App() {
         const minStart = allowOvertime ? maxEndDate : addBusinessDays(maxEndDate, 1);
         if (earliestDate < minStart) earliestDate = minStart;
       }
-      const endDate = addBusinessDays(earliestDate, baseDur);
+      const endDate = endDateForDuration(earliestDate, baseDur);
       task.startDate = withTime(task.startDate, earliestDate, false);
       task.endDate = withTime(task.endDate, endDate, true);
     }
@@ -1006,7 +1016,7 @@ export default function App() {
                                           const updated = prev.tasks.map((x) => {
                                             if (x.code !== t.code) return x;
                                             const dur = Math.max(1, Math.round(businessDaysBetween(x.startDate, x.endDate)));
-                                            return { ...x, startDate: newStart, endDate: withTime(x.endDate, addBusinessDays(newStart, dur), true) };
+                                            return { ...x, startDate: newStart, endDate: withTime(x.endDate, endDateForDuration(newStart, dur), true) };
                                           });
                                           return { ...prev, tasks: updated };
                                         });
@@ -1040,7 +1050,7 @@ export default function App() {
                                         setProject((prev) => {
                                           const updated = prev.tasks.map((x) => {
                                             if (x.code !== t.code) return x;
-                                            return { ...x, endDate: withTime(x.endDate, addBusinessDays(x.startDate, dur), true) };
+                                            return { ...x, endDate: withTime(x.endDate, endDateForDuration(x.startDate, dur), true) };
                                           });
                                           return { ...prev, tasks: updated };
                                         });
