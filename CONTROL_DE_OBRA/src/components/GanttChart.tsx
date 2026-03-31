@@ -79,6 +79,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const [pxPerUnit, setPxPerUnit] = useState(30);
   const [isPanning, setIsPanning] = useState(false);
   const [taskColWidth, setTaskColWidth] = useState(320);
+  const colResizeRef = useRef<{ startClientX: number; startWidth: number; pointerId: number } | null>(null);
+  const [isResizingCol, setIsResizingCol] = useState(false);
   const [showCritical, setShowCritical] = useState(false);
   const [bodyScrollTop, setBodyScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -613,19 +615,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           >
             Ruta crítica
           </button>
-
-          <div className="flex items-center gap-2 bg-white border border-zinc-200 rounded-lg px-3 py-2">
-            <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Ancho</span>
-            <input
-              type="range"
-              min={240}
-              max={520}
-              value={taskColWidth}
-              onChange={(e) => setTaskColWidth(Number(e.target.value))}
-              className="w-28"
-            />
-            <span className="text-xs font-mono text-zinc-700">{taskColWidth}px</span>
-          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -662,10 +651,62 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           <div ref={headerRef} className="flex border-b border-zinc-100 bg-zinc-50 sticky top-0 z-20">
             <div
               data-gantt-left="true"
-              className="flex-shrink-0 border-r border-zinc-200 p-3 font-semibold text-zinc-600 text-sm sticky left-0 bg-zinc-50 z-30 flex items-center"
+              className="flex-shrink-0 border-r border-zinc-200 p-3 font-semibold text-zinc-600 text-sm sticky left-0 bg-zinc-50 z-30 flex items-center relative"
               style={{ width: taskColWidth }}
             >
               Tarea / Actividad
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                title="Arrastra para ajustar el ancho"
+                onDoubleClick={() => setTaskColWidth(320)}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.stopPropagation();
+                  colResizeRef.current = { startClientX: e.clientX, startWidth: taskColWidth, pointerId: e.pointerId };
+                  try {
+                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                  } catch {
+                  }
+                  setIsResizingCol(true);
+                }}
+                onPointerMove={(e) => {
+                  if (!isResizingCol) return;
+                  const state = colResizeRef.current;
+                  if (!state) return;
+                  const next = Math.max(260, state.startWidth + (e.clientX - state.startClientX));
+                  setTaskColWidth(next);
+                }}
+                onPointerUp={(e) => {
+                  if (!isResizingCol) return;
+                  const state = colResizeRef.current;
+                  if (state) {
+                    try {
+                      (e.currentTarget as HTMLDivElement).releasePointerCapture(state.pointerId);
+                    } catch {
+                    }
+                  }
+                  colResizeRef.current = null;
+                  setIsResizingCol(false);
+                }}
+                onPointerCancel={(e) => {
+                  if (!isResizingCol) return;
+                  const state = colResizeRef.current;
+                  if (state) {
+                    try {
+                      (e.currentTarget as HTMLDivElement).releasePointerCapture(state.pointerId);
+                    } catch {
+                    }
+                  }
+                  colResizeRef.current = null;
+                  setIsResizingCol(false);
+                }}
+                className={cn(
+                  "absolute top-0 bottom-0 right-0 w-2 cursor-col-resize",
+                  isResizingCol ? "bg-zinc-300/60" : "hover:bg-zinc-300/40"
+                )}
+                style={{ touchAction: 'none' }}
+              />
             </div>
             <div className="flex flex-col" style={{ width: totalWidth }}>
               <div className="flex h-7 border-b border-zinc-100">
