@@ -674,7 +674,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   if (!isResizingCol) return;
                   const state = colResizeRef.current;
                   if (!state) return;
-                  const next = Math.max(260, state.startWidth + (e.clientX - state.startClientX));
+                  const next = Math.max(140, state.startWidth + (e.clientX - state.startClientX));
                   setTaskColWidth(next);
                 }}
                 onPointerUp={(e) => {
@@ -702,10 +702,14 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   setIsResizingCol(false);
                 }}
                 className={cn(
-                  "absolute top-0 bottom-0 right-0 w-2 cursor-col-resize",
-                  isResizingCol ? "bg-zinc-300/60" : "hover:bg-zinc-300/40"
+                  "absolute top-0 bottom-0 right-0 w-4 cursor-col-resize",
+                  isResizingCol ? "bg-zinc-300/70" : "hover:bg-zinc-300/50"
                 )}
                 style={{ touchAction: 'none' }}
+              />
+              <div
+                className="absolute top-0 bottom-0 right-0 w-px bg-zinc-200 pointer-events-none"
+                aria-hidden="true"
               />
             </div>
             <div className="flex flex-col" style={{ width: totalWidth }}>
