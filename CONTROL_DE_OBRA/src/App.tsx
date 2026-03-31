@@ -993,8 +993,8 @@ export default function App() {
                     />
                     <div
                       className={cn(
-                        "absolute left-3 right-3 bottom-3 z-40 bg-white rounded-2xl border border-zinc-200 shadow-xl overflow-hidden transition-transform duration-200",
-                        planOpen ? "translate-y-0" : "translate-y-[110%]"
+                        "absolute left-3 top-32 bottom-3 z-40 bg-white rounded-2xl border border-zinc-200 shadow-xl overflow-hidden transition-transform duration-200 w-[720px] max-w-[calc(100%-1.5rem)] flex flex-col",
+                        planOpen ? "translate-x-0" : "-translate-x-[110%]"
                       )}
                     >
                       <div className="p-3 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
@@ -1025,7 +1025,7 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                      <div className="max-h-[40vh] overflow-auto">
+                      <div className="flex-1 min-h-0 overflow-auto">
                         <table className="w-full text-left border-collapse">
                           <thead className="sticky top-0 bg-white">
                             <tr className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold border-b border-zinc-100">
