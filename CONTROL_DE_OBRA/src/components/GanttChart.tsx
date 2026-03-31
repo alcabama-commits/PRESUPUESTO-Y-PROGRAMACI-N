@@ -454,6 +454,28 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     scroller.scrollBy({ left: direction === 'left' ? -delta : delta, behavior: 'smooth' });
   };
 
+  useEffect(() => {
+    if (!isResizingCol) return;
+    const onMove = (ev: PointerEvent) => {
+      const state = colResizeRef.current;
+      if (!state) return;
+      const next = Math.max(140, state.startWidth + (ev.clientX - state.startClientX));
+      setTaskColWidth(next);
+    };
+    const end = () => {
+      colResizeRef.current = null;
+      setIsResizingCol(false);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+  }, [isResizingCol]);
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement | null;
@@ -664,42 +686,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   if (e.button !== 0) return;
                   e.stopPropagation();
                   colResizeRef.current = { startClientX: e.clientX, startWidth: taskColWidth, pointerId: e.pointerId };
-                  try {
-                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-                  } catch {
-                  }
                   setIsResizingCol(true);
-                }}
-                onPointerMove={(e) => {
-                  if (!isResizingCol) return;
-                  const state = colResizeRef.current;
-                  if (!state) return;
-                  const next = Math.max(140, state.startWidth + (e.clientX - state.startClientX));
-                  setTaskColWidth(next);
-                }}
-                onPointerUp={(e) => {
-                  if (!isResizingCol) return;
-                  const state = colResizeRef.current;
-                  if (state) {
-                    try {
-                      (e.currentTarget as HTMLDivElement).releasePointerCapture(state.pointerId);
-                    } catch {
-                    }
-                  }
-                  colResizeRef.current = null;
-                  setIsResizingCol(false);
-                }}
-                onPointerCancel={(e) => {
-                  if (!isResizingCol) return;
-                  const state = colResizeRef.current;
-                  if (state) {
-                    try {
-                      (e.currentTarget as HTMLDivElement).releasePointerCapture(state.pointerId);
-                    } catch {
-                    }
-                  }
-                  colResizeRef.current = null;
-                  setIsResizingCol(false);
                 }}
                 className={cn(
                   "absolute top-0 bottom-0 right-0 w-4 cursor-col-resize",
@@ -823,7 +810,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   >
                     <div
                       data-gantt-left="true"
-                      className="flex-shrink-0 border-r border-zinc-200 p-3 flex flex-col justify-center sticky left-0 bg-white z-10 group-hover:bg-zinc-50"
+                      className="flex-shrink-0 border-r border-zinc-200 p-3 flex flex-col justify-center sticky left-0 bg-white z-10 group-hover:bg-zinc-50 relative"
                       style={{ width: taskColWidth }}
                     >
                       <div className="flex items-start gap-2" style={{ marginLeft: depth * 12 }}>
@@ -888,6 +875,27 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           />
                         </div>
                       ) : null}
+                      <div
+                        role="separator"
+                        aria-orientation="vertical"
+                        title="Arrastra para ajustar el ancho"
+                        onDoubleClick={() => setTaskColWidth(320)}
+                        onPointerDown={(e) => {
+                          if (e.button !== 0) return;
+                          e.stopPropagation();
+                          colResizeRef.current = { startClientX: e.clientX, startWidth: taskColWidth, pointerId: e.pointerId };
+                          setIsResizingCol(true);
+                        }}
+                        className={cn(
+                          "absolute top-0 bottom-0 right-0 w-4 cursor-col-resize",
+                          isResizingCol ? "bg-zinc-300/70" : "hover:bg-zinc-300/50"
+                        )}
+                        style={{ touchAction: 'none' }}
+                      />
+                      <div
+                        className="absolute top-0 bottom-0 right-0 w-px bg-zinc-200 pointer-events-none"
+                        aria-hidden="true"
+                      />
                     </div>
 
                     <div className="relative" style={gridStyle}>
