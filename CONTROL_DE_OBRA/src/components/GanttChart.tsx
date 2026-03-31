@@ -29,6 +29,15 @@ interface GanttChartProps {
   getDragSet: (root: { code: string; isChapter?: boolean }) => Array<{ code: string; startDate: string; endDate: string }>;
   onBulkUpdateDates: (updates: Array<{ code: string; startDate: string; endDate: string }>) => void;
   onAddDependency: (fromCode: string, toCode: string) => void;
+  editingMode: boolean;
+  depDraftByCode: Record<string, string>;
+  getDurationDays: (startISO: string, endISO: string) => number;
+  normalizeDateTime: (iso: string, isEnd: boolean) => string;
+  onChangeStartDate: (code: string, value: string) => void;
+  onChangeEndDate: (code: string, value: string) => void;
+  onChangeDurationDays: (code: string, durationDays: number) => void;
+  onChangeDepDraft: (code: string, value: string) => void;
+  onCommitDeps: (code: string, value: string) => void;
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -47,6 +56,15 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   getDragSet,
   onBulkUpdateDates,
   onAddDependency,
+  editingMode,
+  depDraftByCode,
+  getDurationDays,
+  normalizeDateTime,
+  onChangeStartDate,
+  onChangeEndDate,
+  onChangeDurationDays,
+  onChangeDepDraft,
+  onCommitDeps,
 }) => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -86,7 +104,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   } | null>(null);
 
   const weekStartsOn = 1;
-  const rowHeight = 56;
+  const rowHeight = editingMode ? 92 : 56;
 
   const { baseline, columns, totalWidth } = useMemo(() => {
     if (tasks.length === 0) {
@@ -743,10 +761,14 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                         ? '#f59e0b'
                         : '#6366f1';
                 const milestoneX = left + Math.max(0, width) - 6;
+                const durationDays = Math.max(1, differenceInCalendarDays(new Date(t.endDate), new Date(t.startDate)) + 1);
+                const durationLaborDays = getDurationDays(t.startDate, t.endDate);
+                const showDurationInBar = Math.max(2, width) >= 56;
                 const title =
                   `${task.code} • ${task.name}\n` +
                   `Inicio: ${format(new Date(t.startDate), "d MMM yyyy HH:mm", { locale: es })}\n` +
-                  `Fin: ${format(new Date(t.endDate), "d MMM yyyy HH:mm", { locale: es })}`;
+                  `Fin: ${format(new Date(t.endDate), "d MMM yyyy HH:mm", { locale: es })}\n` +
+                  `Duración: ${durationDays} días`;
 
                 return (
                   <div
@@ -789,6 +811,38 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                         </span>
                       </div>
                       <span className="text-[9px] text-zinc-400 uppercase tracking-wider ml-12">{task.category}</span>
+                      {editingMode && !task.isChapter ? (
+                        <div className="ml-12 mt-1 flex flex-wrap items-center gap-1.5">
+                          <input
+                            type="datetime-local"
+                            value={normalizeDateTime(t.startDate, false)}
+                            onChange={(e) => onChangeStartDate(task.code, e.target.value)}
+                            className="w-40 px-2 py-1 border border-zinc-200 rounded-lg text-[11px]"
+                          />
+                          <input
+                            type="datetime-local"
+                            value={normalizeDateTime(t.endDate, true)}
+                            onChange={(e) => onChangeEndDate(task.code, e.target.value)}
+                            className="w-40 px-2 py-1 border border-zinc-200 rounded-lg text-[11px]"
+                          />
+                          <input
+                            type="number"
+                            min={1}
+                            value={durationLaborDays}
+                            onChange={(e) => onChangeDurationDays(task.code, Math.max(1, Number.parseInt(e.target.value, 10) || 1))}
+                            className="w-16 px-2 py-1 border border-zinc-200 rounded-lg text-[11px] text-right"
+                            title="Duración (días laborables)"
+                          />
+                          <input
+                            type="text"
+                            value={depDraftByCode[task.code] ?? (task.dependencies ?? []).join(', ')}
+                            onChange={(e) => onChangeDepDraft(task.code, e.target.value)}
+                            onBlur={(e) => onCommitDeps(task.code, e.currentTarget.value)}
+                            placeholder="Predecesoras (ej: 1.1, 1.2)"
+                            className="w-48 px-2 py-1 border border-zinc-200 rounded-lg text-[11px]"
+                          />
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="relative" style={gridStyle}>
@@ -823,7 +877,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                             setIsDraggingBar(true);
                           }}
                         >
-                          <div className="relative h-full w-full rounded-md flex items-center px-2 overflow-hidden">
+                          <div className="relative h-full w-full rounded-md flex items-center justify-between gap-2 px-2 overflow-hidden">
                             <div 
                               className="absolute left-0 top-0 bottom-0 bg-white/20" 
                               style={{ width: `${task.progress}%` }} 
@@ -831,6 +885,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                             <span className="relative z-10 text-[10px] font-bold text-white whitespace-nowrap">
                               {task.progress}%
                             </span>
+                            {showDurationInBar ? (
+                              <span className="relative z-10 text-[10px] font-bold text-white/95 whitespace-nowrap">
+                                {durationDays}d
+                              </span>
+                            ) : null}
                           </div>
                           {!task.isChapter ? (
                             <button

@@ -329,6 +329,7 @@ export default function App() {
   const [saveOk, setSaveOk] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const [allowOvertime, setAllowOvertime] = useState(false);
+  const LOCAL_STORAGE_KEY = 'control_de_obra_project_v1';
   const holidays = useMemo(() => new Set<string>([
     '2026-01-01',
     '2026-03-23',
@@ -359,6 +360,17 @@ export default function App() {
           const res = await fetch('/api/project');
           if (res.ok) data = (await res.json()) as ProjectData;
         } catch {
+        }
+
+        if (!data) {
+          try {
+            const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw) as ProjectData;
+              if (parsed && typeof parsed.projectName === 'string' && Array.isArray(parsed.tasks)) data = parsed;
+            }
+          } catch {
+          }
         }
 
         if (!data) {
@@ -764,6 +776,48 @@ export default function App() {
     setDepDraftByCode((prev) => ({ ...prev, [taskCode]: uniq.join(', ') }));
   };
 
+  const getDurationDays = (startISO: string, endISO: string) => Math.max(1, Math.round(businessDaysBetween(startISO, endISO)));
+
+  const handleGanttChangeStartDate = (code: string, value: string) => {
+    const newStart = normalizeDateTime(value, false);
+    setProject((prev) => {
+      const updated = prev.tasks.map((x) => {
+        if (x.code !== code) return x;
+        const dur = getDurationDays(x.startDate, x.endDate);
+        return { ...x, startDate: newStart, endDate: withTime(x.endDate, endDateForDuration(newStart, dur), true) };
+      });
+      return { ...prev, tasks: updated };
+    });
+    setIsDirty(true);
+  };
+
+  const handleGanttChangeEndDate = (code: string, value: string) => {
+    const newEnd = normalizeDateTime(value, true);
+    setProject((prev) => ({ ...prev, tasks: prev.tasks.map((x) => (x.code === code ? { ...x, endDate: newEnd } : x)) }));
+    setIsDirty(true);
+  };
+
+  const handleGanttChangeDurationDays = (code: string, durationDays: number) => {
+    const dur = Math.max(1, durationDays);
+    setProject((prev) => {
+      const updated = prev.tasks.map((x) => {
+        if (x.code !== code) return x;
+        return { ...x, endDate: withTime(x.endDate, endDateForDuration(x.startDate, dur), true) };
+      });
+      return { ...prev, tasks: updated };
+    });
+    setIsDirty(true);
+  };
+
+  const handleGanttChangeDepDraft = (code: string, value: string) => {
+    setDepDraftByCode((prev) => ({ ...prev, [code]: value }));
+  };
+
+  const handleGanttCommitDeps = (code: string, value: string) => {
+    const parts = value.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    updateTaskDependencies(code, parts);
+  };
+
   const getDragSet = (root: { code: string; isChapter?: boolean }) => {
     const prefix = root.isChapter ? `${root.code}.` : null;
     const affected = prefix
@@ -778,13 +832,27 @@ export default function App() {
       setSaveError(null);
       setSaveOk(false);
       const body = JSON.stringify({ projectName: project.projectName, tasks: project.tasks });
-      const res = await fetch('/api/project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const payload = (await res.json()) as { ok?: boolean; saved?: number };
-      if (!payload.ok) throw new Error('Respuesta inválida del servidor');
-      setIsDirty(false);
-      setSaveOk(true);
-      setTimeout(() => setSaveOk(false), 1500);
+      try {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 4000);
+        const res = await fetch('/api/project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal });
+        window.clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const payload = (await res.json()) as { ok?: boolean; saved?: number };
+        if (!payload.ok) throw new Error('Respuesta inválida del servidor');
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, body);
+        } catch {
+        }
+        setIsDirty(false);
+        setSaveOk(true);
+        setTimeout(() => setSaveOk(false), 1500);
+      } catch {
+        localStorage.setItem(LOCAL_STORAGE_KEY, body);
+        setIsDirty(false);
+        setSaveOk(true);
+        setTimeout(() => setSaveOk(false), 1500);
+      }
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -969,12 +1037,31 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                      {planOpen ? (
+                        <label className="flex items-center gap-2 text-xs text-zinc-700 bg-white border border-zinc-200 rounded-lg px-3 py-2 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={allowOvertime}
+                            onChange={(e) => setAllowOvertime(e.target.checked)}
+                            className="accent-zinc-900"
+                          />
+                          Permitir horas extra
+                        </label>
+                      ) : null}
+                      {planOpen ? (
+                        <button
+                          onClick={applyReplan}
+                          className="px-3 py-2 bg-zinc-900 rounded-lg text-xs font-semibold text-white hover:bg-zinc-800"
+                        >
+                          Aplicar reprogramación
+                        </button>
+                      ) : null}
                       <button
                         onClick={() => setPlanOpen((v) => !v)}
                         className="px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-600 hover:bg-zinc-50 transition-colors shadow-sm"
                         title="Editar fechas y duración"
                       >
-                        Editar plan
+                        {planOpen ? 'Terminar edición' : 'Editar plan'}
                       </button>
                     </div>
                   </div>
@@ -990,134 +1077,16 @@ export default function App() {
                       getDragSet={getDragSet}
                       onBulkUpdateDates={handleBulkUpdateDates}
                       onAddDependency={handleAddDependency}
+                      editingMode={planOpen}
+                      depDraftByCode={depDraftByCode}
+                      getDurationDays={getDurationDays}
+                      normalizeDateTime={normalizeDateTime}
+                      onChangeStartDate={handleGanttChangeStartDate}
+                      onChangeEndDate={handleGanttChangeEndDate}
+                      onChangeDurationDays={handleGanttChangeDurationDays}
+                      onChangeDepDraft={handleGanttChangeDepDraft}
+                      onCommitDeps={handleGanttCommitDeps}
                     />
-                    <div
-                      className={cn(
-                        "absolute left-3 top-32 bottom-3 z-40 bg-white rounded-2xl border border-zinc-200 shadow-xl overflow-hidden transition-transform duration-200 w-[720px] max-w-[calc(100%-1.5rem)] flex flex-col",
-                        planOpen ? "translate-x-0" : "-translate-x-[110%]"
-                      )}
-                    >
-                      <div className="p-3 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Editor de Plan</span>
-                          <label className="flex items-center gap-2 text-xs text-zinc-700">
-                            <input
-                              type="checkbox"
-                              checked={allowOvertime}
-                              onChange={(e) => setAllowOvertime(e.target.checked)}
-                              className="accent-zinc-900"
-                            />
-                            Permitir horas extra
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={applyReplan}
-                            className="px-3 py-2 bg-zinc-900 rounded-lg text-xs font-semibold text-white hover:bg-zinc-800"
-                          >
-                            Aplicar reprogramación
-                          </button>
-                          <button
-                            onClick={() => setPlanOpen(false)}
-                            className="px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                          >
-                            Ocultar
-                          </button>
-                        </div>
-                      </div>
-                      <div className="flex-1 min-h-0 overflow-auto">
-                        <table className="w-full text-left border-collapse">
-                          <thead className="sticky top-0 bg-white">
-                            <tr className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold border-b border-zinc-100">
-                              <th className="px-4 py-3">Código</th>
-                              <th className="px-4 py-3">Actividad</th>
-                              <th className="px-4 py-3">Predecesoras</th>
-                              <th className="px-4 py-3">Inicio</th>
-                              <th className="px-4 py-3">Fin</th>
-                              <th className="px-4 py-3 text-right">Duración (días laborables)</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-50">
-                            {visibleTasks.filter(t => !t.isChapter).map(t => {
-                              const defaultDur = Math.max(1, Math.round(businessDaysBetween(t.startDate, t.endDate)));
-                              const depDraft = depDraftByCode[t.code] ?? (t.dependencies ?? []).join(', ');
-                              return (
-                                <tr key={`plan-${t.code}`} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-2 text-[11px] font-mono text-zinc-500">{t.code}</td>
-                                  <td className="px-4 py-2 text-sm text-zinc-800 truncate">{t.name}</td>
-                                  <td className="px-4 py-2">
-                                    <input
-                                      type="text"
-                                      value={depDraft}
-                                      onChange={(e) => setDepDraftByCode((prev) => ({ ...prev, [t.code]: e.target.value }))}
-                                      onBlur={(e) => {
-                                        const parts = e.currentTarget.value.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
-                                        updateTaskDependencies(t.code, parts);
-                                      }}
-                                      placeholder="Ej: 1.1, 1.2"
-                                      className="w-56 px-2 py-1 border border-zinc-200 rounded-lg text-sm"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-2">
-                                    <input
-                                      type="datetime-local"
-                                      value={normalizeDateTime(t.startDate, false)}
-                                      onChange={(e) => {
-                                        const newStart = normalizeDateTime(e.target.value, false);
-                                        setProject((prev) => {
-                                          const updated = prev.tasks.map((x) => {
-                                            if (x.code !== t.code) return x;
-                                            const dur = Math.max(1, Math.round(businessDaysBetween(x.startDate, x.endDate)));
-                                            return { ...x, startDate: newStart, endDate: withTime(x.endDate, endDateForDuration(newStart, dur), true) };
-                                          });
-                                          return { ...prev, tasks: updated };
-                                        });
-                                        setIsDirty(true);
-                                      }}
-                                      className="px-2 py-1 border border-zinc-200 rounded-lg text-sm"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-2">
-                                    <input
-                                      type="datetime-local"
-                                      value={normalizeDateTime(t.endDate, true)}
-                                      onChange={(e) => {
-                                        const newEnd = normalizeDateTime(e.target.value, true);
-                                        setProject((prev) => {
-                                          const updated = prev.tasks.map((x) => (x.code === t.code ? { ...x, endDate: newEnd } : x));
-                                          return { ...prev, tasks: updated };
-                                        });
-                                        setIsDirty(true);
-                                      }}
-                                      className="px-2 py-1 border border-zinc-200 rounded-lg text-sm"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-2 text-right">
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      value={defaultDur}
-                                      onChange={(e) => {
-                                        const dur = Math.max(1, Number.parseInt(e.target.value, 10) || 1);
-                                        setProject((prev) => {
-                                          const updated = prev.tasks.map((x) => {
-                                            if (x.code !== t.code) return x;
-                                            return { ...x, endDate: withTime(x.endDate, endDateForDuration(x.startDate, dur), true) };
-                                          });
-                                          return { ...prev, tasks: updated };
-                                        });
-                                        setIsDirty(true);
-                                      }}
-                                      className="w-24 px-2 py-1 border border-zinc-200 rounded-lg text-sm text-right"
-                                    />
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
                   </div>
                 </div>
               ) : null}
