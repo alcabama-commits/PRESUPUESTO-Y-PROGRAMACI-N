@@ -795,7 +795,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                       {!task.isMilestone ? (
                         <div 
                           className={cn(
-                            "absolute top-3 h-8 rounded-md shadow-sm flex items-center px-2 overflow-hidden transition-all group-hover:brightness-105",
+                            "absolute top-3 h-8 rounded-md shadow-sm transition-all group-hover:brightness-105 overflow-visible",
                             isCritical ? "ring-2 ring-red-500 ring-offset-1 ring-offset-white" : ""
                           )}
                           style={{ 
@@ -823,13 +823,15 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                             setIsDraggingBar(true);
                           }}
                         >
-                          <div 
-                            className="absolute left-0 top-0 bottom-0 bg-white/20" 
-                            style={{ width: `${task.progress}%` }} 
-                          />
-                          <span className="relative z-10 text-[10px] font-bold text-white whitespace-nowrap">
-                            {task.progress}%
-                          </span>
+                          <div className="relative h-full w-full rounded-md flex items-center px-2 overflow-hidden">
+                            <div 
+                              className="absolute left-0 top-0 bottom-0 bg-white/20" 
+                              style={{ width: `${task.progress}%` }} 
+                            />
+                            <span className="relative z-10 text-[10px] font-bold text-white whitespace-nowrap">
+                              {task.progress}%
+                            </span>
+                          </div>
                           {!task.isChapter ? (
                             <button
                               type="button"
@@ -845,9 +847,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                                   y: index * rowHeight + rowHeight / 2,
                                 });
                               }}
-                              className="ml-auto w-5 h-5 rounded-full bg-white/90 border border-white/40 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/95 border border-white/40 grid place-items-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity cursor-crosshair"
                               title="Arrastra para conectar predecesora"
-                            />
+                            >
+                              <ArrowRight size={12} className="text-zinc-700" />
+                            </button>
                           ) : null}
                           {!task.isChapter ? (
                             <div

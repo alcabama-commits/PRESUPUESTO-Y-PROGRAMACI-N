@@ -322,6 +322,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [collapsedByCode, setCollapsedByCode] = useState<Record<string, boolean>>({});
   const [chapterVisibility, setChapterVisibility] = useState<Record<string, boolean>>({});
+  const [depDraftByCode, setDepDraftByCode] = useState<Record<string, string>>({});
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -638,6 +639,10 @@ export default function App() {
     }
     return out;
   };
+  const hasDependencyCycle = (tasksList: Task[]) => {
+    const leafCount = tasksList.filter((t) => !t.isChapter).length;
+    return topoOrder(tasksList).length < leafCount;
+  };
   const computeReplanned = (tasksList: Task[]) => {
     const order = topoOrder(tasksList);
     const nextTasks = tasksList.map((t) => ({ ...t }));
@@ -725,6 +730,38 @@ export default function App() {
       return { ...prev, tasks: updated };
     });
     setIsDirty(true);
+  };
+
+  const updateTaskDependencies = (taskCode: string, deps: string[]) => {
+    const allowed = new Set(project.tasks.filter((t) => !t.isChapter).map((t) => t.code));
+    const uniq = Array.from(
+      new Set(
+        deps
+          .map((d) => d.trim())
+          .filter((d) => d.length > 0)
+          .filter((d) => d !== taskCode)
+          .filter((d) => allowed.has(d))
+      )
+    );
+
+    const nextTasks = project.tasks.map((t) => (t.code === taskCode ? { ...t, dependencies: uniq.length > 0 ? uniq : undefined } : t));
+    if (hasDependencyCycle(nextTasks)) {
+      window.alert('No se puede crear una dependencia circular.');
+      setDepDraftByCode((prev) => {
+        const next = { ...prev };
+        const cur = project.tasks.find((t) => t.code === taskCode)?.dependencies ?? [];
+        next[taskCode] = cur.join(', ');
+        return next;
+      });
+      return;
+    }
+
+    setProject((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) => (t.code === taskCode ? { ...t, dependencies: uniq.length > 0 ? uniq : undefined } : t)),
+    }));
+    setIsDirty(true);
+    setDepDraftByCode((prev) => ({ ...prev, [taskCode]: uniq.join(', ') }));
   };
 
   const getDragSet = (root: { code: string; isChapter?: boolean }) => {
@@ -994,6 +1031,7 @@ export default function App() {
                             <tr className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold border-b border-zinc-100">
                               <th className="px-4 py-3">Código</th>
                               <th className="px-4 py-3">Actividad</th>
+                              <th className="px-4 py-3">Predecesoras</th>
                               <th className="px-4 py-3">Inicio</th>
                               <th className="px-4 py-3">Fin</th>
                               <th className="px-4 py-3 text-right">Duración (días laborables)</th>
@@ -1002,10 +1040,24 @@ export default function App() {
                           <tbody className="divide-y divide-zinc-50">
                             {visibleTasks.filter(t => !t.isChapter).map(t => {
                               const defaultDur = Math.max(1, Math.round(businessDaysBetween(t.startDate, t.endDate)));
+                              const depDraft = depDraftByCode[t.code] ?? (t.dependencies ?? []).join(', ');
                               return (
                                 <tr key={`plan-${t.code}`} className="hover:bg-zinc-50/50 transition-colors">
                                   <td className="px-4 py-2 text-[11px] font-mono text-zinc-500">{t.code}</td>
                                   <td className="px-4 py-2 text-sm text-zinc-800 truncate">{t.name}</td>
+                                  <td className="px-4 py-2">
+                                    <input
+                                      type="text"
+                                      value={depDraft}
+                                      onChange={(e) => setDepDraftByCode((prev) => ({ ...prev, [t.code]: e.target.value }))}
+                                      onBlur={(e) => {
+                                        const parts = e.currentTarget.value.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+                                        updateTaskDependencies(t.code, parts);
+                                      }}
+                                      placeholder="Ej: 1.1, 1.2"
+                                      className="w-56 px-2 py-1 border border-zinc-200 rounded-lg text-sm"
+                                    />
+                                  </td>
                                   <td className="px-4 py-2">
                                     <input
                                       type="datetime-local"
