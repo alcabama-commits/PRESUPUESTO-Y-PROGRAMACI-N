@@ -154,7 +154,28 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   const effectiveTask = (task: Task) => {
     const preview = dragPreviewByCode[task.code];
-    return preview ? { ...task, ...preview } : task;
+    let base = preview ? { ...task, ...preview } : task;
+    if (base.isChapter) {
+      const prefix = `${base.code}.`;
+      const children = tasks.filter((t) => !t.isChapter && t.code.startsWith(prefix));
+      if (children.length > 0) {
+        const minStart = new Date(Math.min(...children.map((c) => new Date(c.startDate).getTime())));
+        const maxEnd = new Date(Math.max(...children.map((c) => new Date(c.endDate).getTime())));
+        const weights = children.map(
+          (c) => Math.max(1, differenceInCalendarDays(new Date(c.endDate), new Date(c.startDate)) + 1)
+        );
+        const totalW = weights.reduce((a, b) => a + b, 0);
+        const weightedProgress = children.reduce((acc, c, idx) => acc + (c.progress ?? 0) * (weights[idx] ?? 1), 0);
+        const aggProgress = totalW > 0 ? Math.round((weightedProgress / totalW) * 100) / 100 : base.progress ?? 0;
+        base = {
+          ...base,
+          startDate: toLocalISO(minStart),
+          endDate: toLocalISO(maxEnd),
+          progress: aggProgress,
+        };
+      }
+    }
+    return base;
   };
 
   const getTaskPosition = (task: Task) => {
