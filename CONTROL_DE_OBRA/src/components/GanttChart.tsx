@@ -965,6 +965,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                               </span>
                             ) : null}
                           </div>
+                          {!showDurationInBar ? (
+                            <span className="absolute left-full top-full ml-2 mt-1 text-[10px] font-bold text-zinc-700 bg-white border border-zinc-200 rounded-md px-1.5 py-0.5 shadow-sm whitespace-nowrap">
+                              {durationDays}d
+                            </span>
+                          ) : null}
                           {!task.isChapter ? (
                             <button
                               type="button"
@@ -1010,32 +1015,37 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           ) : null}
                         </div>
                       ) : (
-                        <div
-                          className={cn(
-                            "absolute top-5 w-3 h-3 rotate-45 rounded-[2px] shadow-sm",
-                            isCritical ? "ring-2 ring-red-500 ring-offset-1 ring-offset-white" : ""
-                          )}
-                          style={{ left: `${milestoneX}px`, backgroundColor: barColor }}
-                          data-gantt-bar="true"
-                          title={title}
-                          onPointerDown={(e) => {
-                            if (e.button !== 0) return;
-                            if (linking) return;
-                            e.stopPropagation();
-                            const affected = getDragSet({ code: task.code, isChapter: task.isChapter });
-                            if (affected.length === 0) return;
-                            dragRef.current = {
-                              startClientX: e.clientX,
-                              lastDeltaUnits: 0,
-                              base: affected.map((x) => ({ code: x.code, startDate: x.startDate, endDate: x.endDate })),
-                            };
-                            try {
-                              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-                            } catch {
-                            }
-                            setIsDraggingBar(true);
-                          }}
-                        />
+                        <div className="absolute top-5 overflow-visible" style={{ left: `${milestoneX}px` }}>
+                          <div
+                            className={cn(
+                              "w-3 h-3 rotate-45 rounded-[2px] shadow-sm",
+                              isCritical ? "ring-2 ring-red-500 ring-offset-1 ring-offset-white" : ""
+                            )}
+                            style={{ backgroundColor: barColor }}
+                            data-gantt-bar="true"
+                            title={title}
+                            onPointerDown={(e) => {
+                              if (e.button !== 0) return;
+                              if (linking) return;
+                              e.stopPropagation();
+                              const affected = getDragSet({ code: task.code, isChapter: task.isChapter });
+                              if (affected.length === 0) return;
+                              dragRef.current = {
+                                startClientX: e.clientX,
+                                lastDeltaUnits: 0,
+                                base: affected.map((x) => ({ code: x.code, startDate: x.startDate, endDate: x.endDate })),
+                              };
+                              try {
+                                (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                              } catch {
+                              }
+                              setIsDraggingBar(true);
+                            }}
+                          />
+                          <span className="absolute left-full top-1/2 -translate-y-1/2 ml-2 text-[10px] font-bold text-zinc-700 bg-white border border-zinc-200 rounded-md px-1.5 py-0.5 shadow-sm whitespace-nowrap">
+                            {durationDays}d
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

@@ -613,7 +613,8 @@ export default function App() {
     return cur;
   };
   const endDateForDuration = (startISO: string, durationDays: number) => {
-    let remaining = Math.max(1, durationDays);
+    const safe = Number.isFinite(durationDays) ? durationDays : 1;
+    let remaining = Math.max(0.0001, safe);
     let cur = datePart(startISO);
     while (remaining > 0) {
       remaining -= workingWeightForDay(cur);
@@ -663,7 +664,7 @@ export default function App() {
 
     for (const code of order) {
       const task = nextByCode.get(code)!;
-      const baseDur = Math.max(1, Math.round(businessDaysBetween(task.startDate, task.endDate)));
+      const baseDur = Math.max(0.0001, businessDaysBetween(task.startDate, task.endDate));
       let earliestDate = datePart(task.startDate);
       const deps = (task.dependencies ?? []).filter((d) => nextByCode.has(d));
       if (deps.length > 0) {
